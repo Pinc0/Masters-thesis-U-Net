@@ -31,7 +31,7 @@ from skimage.color import rgb2gray
 import torchvision.transforms.functional as TF
 
 class DataSet(torch.utils.data.Dataset):
-    def __init__(self, split="Training + validation", path_to_data='/content/drive/MyDrive/UNET/Data_new', fold = 0, isval = True):
+    def __init__(self, split="Training + validation", path_to_data='/content/drive/MyDrive/UNET/Data_final', fold = 0, isval = True):
         self.split = split
         self.path = path_to_data + '/' + split 
         self.isval = isval
@@ -133,13 +133,13 @@ class DataSet(torch.utils.data.Dataset):
 
       
 loader = DataSet(split='Training + validation', fold = 0, isval = False)
-trainloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=4, shuffle=True, pin_memory=True)
+trainloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=0, shuffle=True, pin_memory=True)
 
 loader = DataSet(split='Training + validation', fold = 0, isval = True)
-validloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=4, shuffle=True, pin_memory=True)
+validloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=0, shuffle=True, pin_memory=True)
 
 loader = DataSet(split='Testing')
-testloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=4, shuffle=True, pin_memory=True)
+testloader = torch.utils.data.DataLoader(loader, batch_size=1, num_workers=0, shuffle=True, pin_memory=True)
 
 for it,(data,mask) in enumerate(trainloader):
     print('training instance')
@@ -296,9 +296,9 @@ net
 
 def dice_loss(X, Y):
   
-    eps = 1.
+    eps = 1e-8
 
-    dice = ((2. * torch.sum(X*Y) + eps) / (torch.sum(X) + torch.sum(Y) + eps) )
+    dice = ((2. * torch.sum(X*Y) + eps) / (torch.sum(X) + torch.sum(Y) + eps))
 
     return 1 - dice
 
@@ -330,10 +330,10 @@ np.random.seed(0)
 random.seed(0)
 torch.manual_seed(0)
 
-batch = 16
-epochs = 140
+batch = 22
+epochs = 500
 
-for i in range(5):     # five crossvalidation folds
+for i in range(5):     # five crossvalidation fold
 
     loader = DataSet(split='Training + validation', fold = i, isval = False)
     trainloader = torch.utils.data.DataLoader(loader, batch_size=batch, num_workers=2, shuffle=True, pin_memory=True)
@@ -354,6 +354,8 @@ for i in range(5):     # five crossvalidation folds
 
     for epoch in range(epochs):
 
+        print('Fold - {}, Epoch - {}'.format(i+1, epoch+1))
+
         loss_tmp = []
 
         for k,(data,lbl) in enumerate(trainloader):   # training
@@ -364,7 +366,6 @@ for i in range(5):     # five crossvalidation folds
             net.train()
 
             output = net(data)
-
             output = torch.sigmoid(output)
 
             loss = dice_loss(lbl,output)
@@ -422,33 +423,13 @@ for i in range(5):     # five crossvalidation folds
                 'epoch': epoch,
                 'model_state_dict': net.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss
+                'loss': loss,
+                'training_loss_vector': train_loss,
+                'validation_loss_vector': validation_loss
                 } 
 
         sheduler.step()
-
-
-        fig = go.Figure()   # visualizations of learning curves and processed images
-        fig.update_layout(title='Learning curves',
-                          yaxis_title = "Dice loss",
-                          xaxis_title = 'Iterations',
-                          title_font_size=30,
-                          font_size = 22,
-                          title_x = 0.5,
-                          # legend_orientation='h'
-                          legend_x = 0.79,
-                          legend_y = 1,)
-        fig.update_yaxes(title_font_size = 25)
-        fig.update_xaxes(title_font_size = 25)
-        fig.add_trace(go.Scatter(x=[a for a in range(epochs)], y=validation_loss,
-                                mode='lines',
-                                name='validation loss',
-                                line_color='red'))
-        fig.add_trace(go.Scatter(x=[a for a in range(epochs)], y=train_loss,
-                                mode='lines',
-                                name='training loss',
-                                line_color='orange'))
-        fig.show()
+       
 
         plt.imshow(data[0,0,:,:].detach().cpu().numpy(),'gray')
         plt.title('Validation - Original')
@@ -462,16 +443,11 @@ for i in range(5):     # five crossvalidation folds
         plt.title('Validation - Prediction')
         plt.show()  
 
+
     torch.save(     # saving the best model
         params,
-        '/content/drive/MyDrive/UNET/Training models/Final_crossval_{}.pt'.format(i+1)
+        '/content/drive/MyDrive/UNET/Training models/500_{}.pt'.format(i+1)
         )
-
-"""## **Number of parameters computation**"""
-
-model_parameters = filter(lambda p: p.requires_grad, net.parameters())
-params = sum([np.prod(p.size()) for p in model_parameters])
-params
 
 """## **Installation of Bayessian optimization method**"""
 
@@ -620,13 +596,7 @@ hyperparams.maximize(
     n_iter=30    # 30 Bayesian steps
 )
 
-"""## **Lowest loss + epoch in which this loss was achieved**"""
-
-PATH = '/content/drive/MyDrive/UNET/Training models/Final_crossval_5.pt'
-net_params = torch.load(PATH)
-print(net_params['loss'], net_params['epoch'])
-
-"""## **Testing loop**"""
+"""## **Testing + visualization** """
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -652,17 +622,24 @@ from plotly import graph_objects as go
 from plotly.subplots import make_subplots
 
 loader = DataSet(split='Testing')
-testloader = torch.utils.data.DataLoader(loader, batch_size=20, num_workers=0, shuffle=False, pin_memory=True)
+testloader = torch.utils.data.DataLoader(loader, batch_size=10, num_workers=0, shuffle=False, pin_memory=True)
 
 # PATH = '/content/drive/MyDrive/UNET/Training models/Best_model_fold_1.pt'
 # PATH = '/content/drive/MyDrive/UNET/Training models/No_augmentation_1.pt'
 # PATH = '/content/drive/MyDrive/UNET/Training models/No_skip_connections_1.pt'
-PATH = '/content/drive/MyDrive/UNET/Training models/Final_crossval_5.pt'
+# PATH = '/content/drive/MyDrive/UNET/Training models/Final_crossval_5.pt'
+# PATH = '/content/drive/MyDrive/UNET/Training models/500_1.pt'
+PATH = '/content/drive/MyDrive/UNET/Training models/300_1.pt'
 
 net_params = torch.load(PATH)   # loading of trained model
 net = Unet().cuda()
 net.load_state_dict(net_params['model_state_dict'])
 
+
+Recall = []
+Precision = []
+F1 = []
+im = 0
 
 for kk,(data,lbl) in enumerate(testloader):   # testing
     with torch.no_grad():
@@ -676,11 +653,6 @@ for kk,(data,lbl) in enumerate(testloader):   # testing
 
         lbl_num = lbl.detach().cpu()
         clas = output.detach().cpu() > 0.5
-
-
-        Recall = []
-        Precision = []
-        F1 = []
 
         for inst in range(len(data)):
 
@@ -699,15 +671,15 @@ for kk,(data,lbl) in enumerate(testloader):   # testing
             plt.imshow(data.detach().cpu()[inst,0,:,:] ,'gray')
             plt.title('Image')
             plt.show()
-            # filename = '/content/drive/MyDrive/UNET/Output_images/Final/Orig_{}.png'.format(inst+1)
-            # cv2.imwrite(filename, np.uint8(data.detach().cpu()[inst,0,:,:]))
+            # # filename = '/content/drive/MyDrive/UNET/Output_images/Final/Orig_{}.png'.format(inst+1)
+            # # cv2.imwrite(filename, np.uint8(data.detach().cpu()[inst,0,:,:]))
 
             plt.figure(figsize = [7,7])
             plt.imshow(lbl_num[inst,0,:,:] ,'gray')
             plt.title('Label')
             plt.show()
-            # filename = '/content/drive/MyDrive/UNET/Output_images/Final/Mask_{}.png'.format(inst+1)
-            # cv2.imwrite(filename, np.uint8(lbl_num[inst,0,:,:])*255)
+            # # filename = '/content/drive/MyDrive/UNET/Output_images/Final/Mask_{}.png'.format(inst+1)
+            # # cv2.imwrite(filename, np.uint8(lbl_num[inst,0,:,:])*255)
 
             plt.figure(figsize = [7,7])
             plt.imshow(clas[inst,0,:,:], 'gray')
@@ -716,27 +688,68 @@ for kk,(data,lbl) in enumerate(testloader):   # testing
             # filename = '/content/drive/MyDrive/UNET/Output_images/Final/Output_{}.png'.format(inst+1)
             # cv2.imwrite(filename, np.uint8(clas[inst,0,:,:])*255)
 
-            print(inst)
+            print('Testing image '+ str(im))
             print('Recall: '+str(round(Recall[inst],3))+ ', Precision: '+str(round(Precision[inst],3))+ ', F1: ' +str(round(F1[inst],3))) # individual metric printing
-            
-        Recall_final = np.mean(Recall)
-        Precision_final = np.mean(Precision)
-        F1_final = np.mean(F1)
 
-    
-plt.figure(figsize = [10,10])   # visualization of metrics
-plt.plot(F1, label = 'F1')
-plt.plot(Precision, label = 'Precision')
-plt.plot(Recall, label = 'Recall')
-plt.legend(loc = "upper left")
-plt.title('Evaluation metrics')
-plt.xlabel('Images')
-plt.ylabel('Score')
-plt.grid(axis = 'y')
-plt.show()
+            im+=1
+
+Recall_final = np.mean(Recall)
+Precision_final = np.mean(Precision)
+F1_final = np.mean(F1)
+
+
+
+# fig = go.Figure()   # visualizations of learning curves and processed images
+# fig.update_layout(title='Learning curves',
+#                   yaxis_title = "Dice loss",
+#                   xaxis_title = 'Iterations',
+#                   title_font_size=30,
+#                   font_size = 22,
+#                   title_x = 0.5,
+#                   # legend_orientation='h'
+#                   legend_x = 0.79,
+#                   legend_y = 1,)
+# fig.update_yaxes(title_font_size = 25)
+# fig.update_xaxes(title_font_size = 25)
+# fig.add_trace(go.Scatter(y=net_params['validation_loss_vector'],
+#                         mode='lines',
+#                         name='validation loss',
+#                         line_color='red'))
+# fig.add_trace(go.Scatter(y=net_params['training_loss_vector'],
+#                         mode='lines',
+#                         name='training loss',
+#                         line_color='orange'))
+# fig.show()
+
+print('')
+
+fig = go.Figure()   # visualizations of metrics
+fig.update_layout(title='Evaluation metrics',
+                  yaxis_title = 'Score',
+                  xaxis_title = 'Images',
+                  title_font_size=30,
+                  font_size = 22,
+                  title_x = 0.5,
+                  # legend_orientation='h'
+                  legend_x = 0.79,
+                  legend_y = 1,)
+fig.update_yaxes(title_font_size = 25)
+fig.update_xaxes(title_font_size = 25)
+fig.add_trace(go.Scatter(y=F1,
+                        mode='lines',
+                        name='F1'))
+fig.add_trace(go.Scatter(y=Precision,
+                        mode='lines',
+                        name='Precision'))
+fig.add_trace(go.Scatter(y=Recall,
+                        mode='lines',
+                        name='Recall'))
+fig.show()
+
+print('')
 
 fig = go.Figure()   # boxplot of model
-fig.update_layout(yaxis_title = "Metric range", title_font_size=30, font_size = 22, title_x = 0.5)
+fig.update_layout(title='Boxplots of metrics', yaxis_title = "Metric range", title_font_size=30, font_size = 22, title_x = 0.5)
 fig.update_yaxes(title_font_size = 25)
 fig.add_trace(go.Box(y=Recall, name='Recall', fillcolor = 'rgba(255,0,0,0.5)', marker_color = 'rgba(255,0,0,1)'))
 fig.add_trace(go.Box(y=Precision, name='Precision'))
@@ -744,5 +757,73 @@ fig.add_trace(go.Box(y=F1, name='Dice score', fillcolor = 'rgba(255,50,50,0.5)',
 fig.show()
 
 print('') # printing final information of the model
-print('Epoch: '+str(net_params['epoch'])+ ', Loss: '+str(net_params['loss']))
+print('Model from epoch: '+str(net_params['epoch'])+ ', Validation loss: '+str(net_params['loss']))
 print('Recall: '+str(round(Recall_final,3))+ ', Precision: '+str(round(Precision_final,3))+ ', F1: ' +str(round(F1_final,3)))
+
+"""## **Number of parameters of the model**"""
+
+model_parameters = filter(lambda p: p.requires_grad, net.parameters())
+params = sum([np.prod(p.size()) for p in model_parameters])
+params
+
+"""## **Results**
+## **500 Epochs**
+
+**Model 1:**
+
+Model from epoch: 474, Validation loss: tensor(0.0747, device='cuda:0').
+Recall: 0.81, Precision: 0.839, F1: 0.82
+
+Mean of metrics = 0.823
+
+**Model 2:**
+
+Model from epoch: 495, Validation loss: tensor(0.0798, device='cuda:0')
+Recall: 0.829, Precision: 0.819, F1: 0.821
+
+Mean of metrics = 0.823
+
+**Model 3:**
+
+Model from epoch: 498, Validation loss: tensor(0.0765, device='cuda:0')
+Recall: 0.827, Precision: 0.821, F1: 0.822
+
+Mean of metrics = 0.823
+
+**Model 4:**
+
+Model from epoch: 497, Validation loss: tensor(0.0753, device='cuda:0')
+Recall: 0.811, Precision: 0.832, F1: 0.817
+
+Mean of metrics = 0.820
+
+**Model 5:**
+
+Model from epoch: 480, Validation loss: tensor(0.0800, device='cuda:0')
+Recall: 0.846, Precision: 0.804, F1: 0.822
+
+Mean of metrics = 0.824
+
+## **300 Epochs**
+
+**Model 1:**
+
+Model from epoch: 289, Validation loss: tensor(0.0920, device='cuda:0')
+Recall: 0.852, Precision: 0.818, F1: 0.832
+
+Mean of metrics = 0.834
+
+**Model 2:**
+
+Model from epoch: 298, Validation loss: tensor(0.0986, device='cuda:0')
+Recall: 0.824, Precision: 0.835, F1: 0.827
+
+Mean of metrics = 0.829
+
+**Model 3:**
+
+Model from epoch: 288, Validation loss: tensor(0.1035, device='cuda:0')
+Recall: 0.801, Precision: 0.846, F1: 0.819
+
+Mean of metrics = 0.822
+"""
